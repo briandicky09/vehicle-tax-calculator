@@ -1,0 +1,98 @@
+#include "Save.h"
+#include <cmath>
+#include <QFile>
+#include <QTextStream>
+#include <QStringList>
+
+// Mengubah angka double menjadi format Rupiah dengan pemisah ribuan titik.
+// Contoh: 1500000.0  ->  "Rp 1.500.000"
+QString Save::formatRupiah(double nilai)
+{
+    long long n = static_cast<long long>(std::round(nilai));
+    QString s   = QString::number(n);
+
+    // Sisipkan titik setiap tiga digit dari kanan
+    for (int pos = s.length() - 3; pos > 0; pos -= 3)
+        s.insert(pos, '.');
+
+    return "Rp " + s;
+}
+
+// Menambahkan record baru ke dalam QList yang dikelola MainWindow.
+void Save::tambahRiwayat(QList<DataKendaraan> &daftar,
+                         const DataKendaraan  &data)
+{
+    daftar.append(data);
+}
+
+// Menyimpan seluruh daftar ke file teks.
+// Format per record: setiap field dipisah newline, antar record dipisah "---".
+// Field yang mengandung newline (alamat) di-encode dengan \n literal.
+void Save::simpanKeFile(const QList<DataKendaraan> &daftar,
+                        const QString &filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+        return;
+
+    QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
+
+    for (const DataKendaraan &d : daftar) {
+        // Encode newline di dalam alamat supaya tidak rusak saat dibaca ulang
+        QString alamatEncoded = d.alamat;
+        alamatEncoded.replace("\n", "\\n");
+
+        out << d.namaPemilik      << "\n"
+            << alamatEncoded      << "\n"
+            << d.nomorPolisi      << "\n"
+            << d.jenisKendaraan   << "\n"
+            << d.tahunPembuatan   << "\n"
+            << d.njkb             << "\n"
+            << d.pkb              << "\n"
+            << d.swdkllj          << "\n"
+            << d.totalPajak       << "\n"
+            << d.tanggalHitung    << "\n"
+            << "---"              << "\n";
+    }
+
+    file.close();
+}
+
+// Memuat data dari file teks ke dalam QList.
+QList<DataKendaraan> Save::muatDariFile(const QString &filePath)
+{
+    QList<DataKendaraan> hasil;
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return hasil; // file belum ada, kembalikan list kosong
+
+    QTextStream in(&file);
+    in.setEncoding(QStringConverter::Utf8);
+
+    while (!in.atEnd()) {
+        DataKendaraan d;
+        d.namaPemilik    = in.readLine();
+        QString alamat   = in.readLine();
+        // Decode kembali \\n menjadi newline asli
+        alamat.replace("\\n", "\n");
+        d.alamat         = alamat;
+        d.nomorPolisi    = in.readLine();
+        d.jenisKendaraan = in.readLine();
+        d.tahunPembuatan = in.readLine().toInt();
+        d.njkb           = in.readLine().toDouble();
+        d.pkb            = in.readLine().toDouble();
+        d.swdkllj        = in.readLine().toDouble();
+        d.totalPajak     = in.readLine().toDouble();
+        d.tanggalHitung  = in.readLine();
+        in.readLine(); // baca separator "---"
+
+        // Hanya tambahkan jika data tidak kosong (antisipasi baris akhir file)
+        if (!d.namaPemilik.isEmpty())
+            hasil.append(d);
+    }
+
+    file.close();
+    return hasil;
+}

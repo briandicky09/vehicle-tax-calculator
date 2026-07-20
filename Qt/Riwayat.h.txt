@@ -1,0 +1,36 @@
+#ifndef RIWAYAT_H // agar file header tidak diinclude lebih dari satu kali
+#define RIWAYAT_H
+#include <QWidget>
+#include <QTableWidget>
+#include <QLineEdit>
+#include <QList>
+#include "Datakendaraan.h"
+class Riwayat : public QWidget
+{
+    Q_OBJECT
+
+public:
+    explicit Riwayat(QWidget *parent = nullptr);
+
+    // Memuat ulang isi tabel dari daftar data
+    void refresh(const QList<DataKendaraan> &daftar);
+
+signals:
+    // untuk agar user bisa klik
+    void barisDiklik(int index);
+
+private slots:
+    void onSearch(const QString &text);
+    void onCellClicked(int row, int column);
+
+private:
+    void buildUI();
+    // untuk menampilkan data kendaraan
+    QTableWidget *tabel       = nullptr;
+    QLineEdit    *searchInput = nullptr;
+
+
+    QList<int> indexMapping; // untuk pencarian/filter dapat menyembunyikan beberapa baris
+};
+
+#endif // RIWAYAT_H

@@ -1,0 +1,76 @@
+#ifndef MAINWINDOW_H
+#define MAINWINDOW_H
+#include <QMainWindow>
+#include <QStackedWidget>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QTextEdit>
+#include <QComboBox>
+#include <QPushButton>
+#include <QIntValidator>
+#include <QList>
+#include <QDateTime>
+#include "Datakendaraan.h"
+#include "Hasil.h"
+#include "Riwayat.h"
+#include "Detail.h"
+class MainWindow : public QMainWindow
+{
+    Q_OBJECT
+
+public:
+    explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override;
+
+private slots:
+    void showInputPage();
+    void showRiwayatPage();
+    void kembaliKeInput();
+    void hitungPajak();
+    void simpanKeRiwayat();
+
+    // membuat halaman Detail
+    void bukaDetailRiwayat(int index);
+    void kembaliKeRiwayatDariDetail();
+    void hapusRiwayat(int index);
+    void updateRiwayat(int index, DataKendaraan data);
+
+private:
+    void setupUI();
+    void setupSidebar();
+    void setupInputPage();
+
+    // Widget utama
+    QWidget        *centralWidget = nullptr;
+    QHBoxLayout    *mainLayout    = nullptr;
+    QStackedWidget *contentStack  = nullptr;
+
+    // Sidebar
+    QWidget     *sidebar      = nullptr;
+    QPushButton *btnInputData = nullptr;
+    QPushButton *btnRiwayat   = nullptr;
+    QPushButton *btnKeluar    = nullptr;
+
+    // Halaman Input
+    QWidget   *inputPage  = nullptr;
+    QLineEdit *inputNama  = nullptr;
+    QTextEdit *inputAlamat= nullptr;
+    QLineEdit *inputNomor = nullptr;
+    QComboBox *comboJenis = nullptr;
+    QLineEdit *inputTahun = nullptr;
+    QLineEdit *inputNJKB  = nullptr;
+    QPushButton *btnHitung= nullptr;
+
+    // Halaman Hasil, Riwayat, dan Detail widget terpisah
+    Hasil   *hasilPage   = nullptr;
+    Riwayat *riwayatPage = nullptr;
+    Detail  *detailPage  = nullptr;
+
+    // Data runtime
+    DataKendaraan         currentData;
+    QList<DataKendaraan>  riwayatData;
+};
+
+#endif // MAINWINDOW_H
