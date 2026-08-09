@@ -1,0 +1,25 @@
+#ifndef SAVE_H
+#define SAVE_H
+#include <QString>
+#include <QList>
+#include "Datakendaraan.h"
+
+class Save
+{
+public:
+    // format nilai double menjadi string Rupiah.
+    static QString formatRupiah(double nilai);
+
+    // Menambahkan satu data kendaraan
+    static void tambahRiwayat(QList<DataKendaraan> &daftar,
+                              const DataKendaraan  &data);
+
+    // untuk menyimpan seluruh daftar ke database
+    static void simpanKeFile(const QList<DataKendaraan> &daftar,
+                             const QString &filePath = "riwayat.txt");
+
+    // Memuat data dari file database
+    static QList<DataKendaraan> muatDariFile(const QString &filePath = "riwayat.txt");
+};
+
+#endif // SAVE_H

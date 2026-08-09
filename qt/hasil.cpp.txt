@@ -1,0 +1,169 @@
+#include "Hasil.h"
+#include "Save.h"
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QFrame>
+#include <QGraphicsDropShadowEffect>
+
+// Stylesheet lokal
+static const QString SS_BTN_PRIMARY = R"(
+QPushButton {
+    background:#2563eb; color:#ffffff; border:none;
+    border-radius:8px; padding:12px 24px;
+    font-size:14px; font-weight:bold;
+}
+QPushButton:hover   { background:#1d4ed8; }
+QPushButton:pressed { background:#1e40af; }
+)";
+static const QString SS_BTN_SECONDARY = R"(
+QPushButton {
+    background:#ffffff; color:#374151;
+    border:1.5px solid #d1d5db; border-radius:8px;
+    padding:12px 24px; font-size:14px; font-weight:bold;
+}
+QPushButton:hover { background:#f9fafb; border-color:#9ca3af; }
+)";
+
+//  Helper internal
+static QFrame* makeCard() {
+    QFrame *f = new QFrame;
+    f->setStyleSheet("QFrame{background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;}");
+    auto *sh = new QGraphicsDropShadowEffect;
+    sh->setBlurRadius(12); sh->setColor(QColor(0,0,0,15)); sh->setOffset(0,2);
+    f->setGraphicsEffect(sh);
+    return f;
+}
+static QFrame* makeLine() {
+    QFrame *f = new QFrame;
+    f->setFrameShape(QFrame::HLine);
+    f->setFixedHeight(1);
+    f->setStyleSheet("background:#e2e8f0;border:none;");
+    return f;
+}
+static QLabel* makeCaption(const QString &t) {
+    QLabel *l = new QLabel(t);
+    l->setStyleSheet("font-size:11px;font-weight:bold;color:#64748b;"
+                     "letter-spacing:0.8px;background:transparent;border:none;");
+    return l;
+}
+
+//  Konstruktor
+Hasil::Hasil(QWidget *parent) : QWidget(parent)
+{
+    setStyleSheet("background:#f8fafc;");
+    buildUI();
+}
+
+void Hasil::buildUI()
+{
+    QVBoxLayout *pg = new QVBoxLayout(this);
+    pg->setContentsMargins(32,28,32,28);
+    pg->setSpacing(0);
+
+    // Judul halaman
+    QLabel *title = new QLabel("Hasil Perhitungan Pajak");
+    title->setStyleSheet("font-size:26px;font-weight:bold;color:#0f172a;background:transparent;");
+    QLabel *sub   = new QLabel("Rincian pajak kendaraan bermotor yang harus dibayarkan.");
+    sub->setStyleSheet("font-size:13px;color:#64748b;background:transparent;margin-bottom:20px;");
+    pg->addWidget(title);
+    pg->addWidget(sub);
+
+    QHBoxLayout *row = new QHBoxLayout;
+    row->setSpacing(20);
+
+    // Card kiri: Data Kendaraan
+    QFrame *cData = makeCard();
+    QVBoxLayout *dL = new QVBoxLayout(cData);
+    dL->setContentsMargins(24,20,24,20); dL->setSpacing(12);
+    QLabel *dTitle = new QLabel("  Data Kendaraan");
+    dTitle->setStyleSheet("font-size:15px;font-weight:bold;color:#1e293b;background:transparent;");
+    dL->addWidget(dTitle); dL->addWidget(makeLine());
+
+    auto addRow = [&](const QString &cap, QLabel *&ref) {
+        QVBoxLayout *v = new QVBoxLayout; v->setSpacing(2);
+        v->addWidget(makeCaption(cap));
+        ref = new QLabel("...");
+        ref->setStyleSheet("font-size:14px;font-weight:bold;color:#1e293b;"
+                           "background:transparent;border:none;");
+        v->addWidget(ref);
+        dL->addLayout(v);
+    };
+    addRow("NAMA PEMILIK",                         lblNama);
+    addRow("NOMOR POLISI",                         lblNomor);
+    addRow("JENIS KENDARAAN",                      lblJenis);
+    addRow("NJKB (NILAI JUAL KENDARAAN BERMOTOR)", lblNJKB);
+    dL->addStretch();
+
+    //  Card kanan: Rincian Pajak
+    QFrame *cPajak = makeCard();
+    QVBoxLayout *pL = new QVBoxLayout(cPajak);
+    pL->setContentsMargins(24,20,24,20); pL->setSpacing(12);
+    QLabel *pTitle = new QLabel("  Rincian Pajak");
+    pTitle->setStyleSheet("font-size:15px;font-weight:bold;color:#1e293b;background:transparent;");
+    pL->addWidget(pTitle); pL->addWidget(makeLine());
+
+    auto addPRow = [&](const QString &cap, QLabel *&ref) {
+        QHBoxLayout *h = new QHBoxLayout;
+        h->addWidget(makeCaption(cap)); h->addStretch();
+        ref = new QLabel("Rp 0");
+        ref->setStyleSheet("font-size:13px;color:#374151;background:transparent;border:none;");
+        h->addWidget(ref);
+        pL->addLayout(h);
+    };
+    addPRow("PKB Pokok", lblPKB);
+    addPRow("SWDKLLJ",   lblSWD);
+
+    pL->addWidget(makeLine());
+    pL->addWidget(makeCaption("TOTAL PAJAK"));
+    lblTotal = new QLabel("Rp 0");
+    lblTotal->setStyleSheet("font-size:28px;font-weight:bold;color:#2563eb;"
+                            "background:transparent;border:none;");
+    pL->addWidget(lblTotal);
+    pL->addStretch();
+
+    row->addWidget(cData, 2);
+    row->addWidget(cPajak, 1);
+    pg->addLayout(row);
+
+    // Garis pemisah
+    QFrame *div = makeLine();
+    div->setStyleSheet("background:#e2e8f0;border:none;margin-top:16px;margin-bottom:16px;");
+    pg->addWidget(div);
+
+    // Tombol aksi
+    QHBoxLayout *btnRow = new QHBoxLayout;
+    btnRow->addStretch();
+
+    btnKembali = new QPushButton("Kembali");
+    btnKembali->setStyleSheet(SS_BTN_SECONDARY);
+    btnKembali->setFixedHeight(44); btnKembali->setMinimumWidth(120);
+    btnKembali->setCursor(Qt::PointingHandCursor);
+    connect(btnKembali, &QPushButton::clicked, this, &Hasil::kembaliDiminta);
+
+    btnSimpan = new QPushButton("Simpan ke Riwayat");
+    btnSimpan->setStyleSheet(SS_BTN_PRIMARY);
+    btnSimpan->setFixedHeight(44); btnSimpan->setMinimumWidth(160);
+    btnSimpan->setCursor(Qt::PointingHandCursor);
+    connect(btnSimpan, &QPushButton::clicked, this, &Hasil::simpanDiminta);
+
+    btnRow->addWidget(btnKembali);
+    btnRow->addSpacing(12);
+    btnRow->addWidget(btnSimpan);
+    pg->addLayout(btnRow);
+    pg->addStretch();
+}
+
+// Mengisi label dengan data yang sudah diformat sebelum halaman ditampilkan.
+void Hasil::tampilkanData(const DataKendaraan &data,
+                          const QString &pkbStr,
+                          const QString &swdStr,
+                          const QString &totalStr)
+{
+    lblNama ->setText(data.namaPemilik);
+    lblNomor->setText(data.nomorPolisi);
+    lblJenis->setText(data.jenisKendaraan);
+    lblNJKB ->setText(Save::formatRupiah(data.njkb));
+    lblPKB  ->setText(pkbStr);
+    lblSWD  ->setText(swdStr);
+    lblTotal->setText(totalStr);
+}

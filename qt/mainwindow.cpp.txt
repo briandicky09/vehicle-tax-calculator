@@ -1,0 +1,582 @@
+#include "mainwindow.h"
+#include "Hitungpajak.h"
+#include "Save.h"
+#include <QApplication>
+#include <QFrame>
+#include <QGraphicsDropShadowEffect>
+#include <QMessageBox>
+#include <QScrollArea>
+
+// Stylesheet sidebar & navigasi
+static const QString SS_SIDEBAR = R"(
+QWidget#sidebar { background-color:#1a1f2e; }
+)";
+static const QString SS_NAV_BTN = R"(
+QPushButton {
+    background:transparent; color:#8892a4; border:none;
+    text-align:left; padding:12px 20px; font-size:14px;
+    border-radius:8px; margin:2px 8px;
+}
+QPushButton:hover { background-color:#252d3d; color:#ffffff; }
+)";
+static const QString SS_NAV_BTN_ACTIVE = R"(
+QPushButton {
+    background-color:#2563eb; color:#ffffff; border:none;
+    text-align:left; padding:12px 20px; font-size:14px;
+    border-radius:8px; margin:2px 8px; font-weight:bold;
+}
+)";
+static const QString SS_INPUT = R"(
+QLineEdit, QTextEdit {
+    background:#ffffff; border:1.5px solid #e2e8f0;
+    border-radius:8px; padding:10px 14px;
+    font-size:13px; color:#1e293b;
+}
+QLineEdit:focus, QTextEdit:focus { border:1.5px solid #2563eb; }
+)";
+static const QString SS_COMBO = R"(
+QComboBox {
+    background:#ffffff; border:1.5px solid #e2e8f0;
+    border-radius:8px; padding:10px 14px;
+    font-size:13px; color:#1e293b;
+}
+QComboBox:focus { border:1.5px solid #2563eb; }
+QComboBox::drop-down { border:none; width:30px; background:transparent; }
+QComboBox::down-arrow {
+    border-left:5px solid transparent;
+    border-right:5px solid transparent;
+    border-top:6px solid #64748b;
+    margin-right:8px;
+}
+QComboBox QAbstractItemView {
+    background:#ffffff; border:1.5px solid #cbd5e1;
+    selection-background-color:#eff6ff; selection-color:#1e40af;
+    color:#1e293b; font-size:13px; outline:none; padding:4px;
+}
+QComboBox QAbstractItemView::item {
+    padding:8px 14px; min-height:32px; background:#ffffff;
+}
+QComboBox QAbstractItemView::item:hover { background:#f1f5f9; }
+QComboBox QAbstractItemView::item:selected { background:#eff6ff; color:#1e40af; }
+)";
+static const QString SS_BTN_PRIMARY = R"(
+QPushButton {
+    background:#2563eb; color:#ffffff; border:none;
+    border-radius:8px; padding:12px 24px;
+    font-size:14px; font-weight:bold;
+}
+QPushButton:hover   { background:#1d4ed8; }
+QPushButton:pressed { background:#1e40af; }
+)";
+
+// ── Helper lokal
+
+static QFrame* makeCard() {
+    QFrame *f = new QFrame;
+    f->setStyleSheet("QFrame{background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;}");
+    auto *sh = new QGraphicsDropShadowEffect;
+    sh->setBlurRadius(12);
+    sh->setColor(QColor(0, 0, 0, 15));
+    sh->setOffset(0, 2);
+    f->setGraphicsEffect(sh);
+    return f;
+}
+
+/**
+ * @brief makeLine
+ * Membuat garis horizontal tipis sebagai pemisah antar section dalam card.
+ */
+static QFrame* makeLine() {
+    QFrame *f = new QFrame;
+    f->setFrameShape(QFrame::HLine);
+    f->setFixedHeight(1);
+    f->setStyleSheet("background:#e2e8f0;border:none;");
+    return f;
+}
+
+/**
+ * @brief makeCaption
+ * Membuat QLabel kecil berwarna abu-abu untuk label field formulir.
+ * @param t Teks label yang akan ditampilkan (biasanya huruf kapital semua).
+ */
+static QLabel* makeCaption(const QString &t) {
+    QLabel *l = new QLabel(t);
+    l->setStyleSheet("font-size:11px;font-weight:bold;color:#64748b;"
+                     "letter-spacing:0.8px;background:transparent;border:none;");
+    return l;
+}
+
+// ── MainWindow ────────────────────────────────────────────────
+
+/**
+ * @brief MainWindow::MainWindow
+ * Konstruktor utama. Inisialisasi UI, lalu muat data riwayat dari file
+ * agar data tetap ada meskipun aplikasi sudah ditutup sebelumnya.
+ */
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+{
+    setWindowTitle("Sistem Pajak Kendaraan Bermotor");
+    setMinimumSize(1100, 700);
+    resize(1200, 750);
+    setupUI();
+
+    // Muat data riwayat dari file saat aplikasi pertama kali dibuka
+    riwayatData = Save::muatDariFile();
+
+    showInputPage();
+}
+
+MainWindow::~MainWindow() {}
+
+/**
+ * @brief MainWindow::setupUI
+ * Menyusun layout utama aplikasi: sidebar di kiri dan contentStack di kanan.
+ * Semua halaman (Input, Hasil, Riwayat, Detail) didaftarkan ke contentStack
+ * dan sinyal antar widget dikoneksikan di sini.
+ */
+void MainWindow::setupUI()
+{
+    centralWidget = new QWidget(this);
+    setCentralWidget(centralWidget);
+
+    mainLayout = new QHBoxLayout(centralWidget);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
+
+    setupSidebar();
+
+    contentStack = new QStackedWidget;
+    contentStack->setStyleSheet("QStackedWidget{background:#f8fafc;}");
+
+    // Bangun masing-masing halaman
+    setupInputPage();
+
+    hasilPage   = new Hasil(this);
+    riwayatPage = new Riwayat(this);
+    detailPage  = new Detail(this);
+
+    // Hubungkan sinyal dari halaman Hasil ke slot MainWindow
+    connect(hasilPage, &Hasil::kembaliDiminta, this, &MainWindow::kembaliKeInput);
+    connect(hasilPage, &Hasil::simpanDiminta,  this, &MainWindow::simpanKeRiwayat);
+
+    // Hubungkan sinyal dari halaman Riwayat: saat baris diklik buka Detail
+    connect(riwayatPage, &Riwayat::barisDiklik, this, &MainWindow::bukaDetailRiwayat);
+
+    // Hubungkan sinyal dari halaman Detail ke slot MainWindow
+    connect(detailPage, &Detail::kembaliDiminta, this, &MainWindow::kembaliKeRiwayatDariDetail);
+    connect(detailPage, &Detail::hapusDiminta,   this, &MainWindow::hapusRiwayat);
+    connect(detailPage, &Detail::editDisimpan,   this, &MainWindow::updateRiwayat);
+
+    // Daftarkan semua halaman ke stack
+    contentStack->addWidget(inputPage);
+    contentStack->addWidget(hasilPage);
+    contentStack->addWidget(riwayatPage);
+    contentStack->addWidget(detailPage);
+
+    mainLayout->addWidget(sidebar);
+    mainLayout->addWidget(contentStack, 1);
+}
+
+/**
+ * @brief MainWindow::setupSidebar
+ * Membangun widget sidebar kiri yang berisi logo aplikasi,
+ * tombol navigasi antar halaman, dan tombol Keluar.
+ */
+void MainWindow::setupSidebar()
+{
+    sidebar = new QWidget;
+    sidebar->setObjectName("sidebar");
+    sidebar->setStyleSheet(SS_SIDEBAR);
+    sidebar->setFixedWidth(220);
+
+    QVBoxLayout *lay = new QVBoxLayout(sidebar);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(0);
+
+    // Bagian brand / logo teks di atas sidebar
+    QWidget *brand = new QWidget;
+    brand->setStyleSheet("background:#1a1f2e;");
+    QVBoxLayout *bl = new QVBoxLayout(brand);
+    bl->setContentsMargins(20, 24, 20, 20);
+    bl->setSpacing(2);
+    QLabel *bName = new QLabel("Sistem Pajak");
+    bName->setStyleSheet("color:#fff;font-size:18px;font-weight:bold;background:transparent;");
+    QLabel *bSub  = new QLabel("Admin Dashboard");
+    bSub->setStyleSheet("color:#64748b;font-size:12px;background:transparent;");
+    bl->addWidget(bName);
+    bl->addWidget(bSub);
+    lay->addWidget(brand);
+
+    // Garis pemisah antara brand dan navigasi
+    QFrame *sep = new QFrame;
+    sep->setFrameShape(QFrame::HLine);
+    sep->setFixedHeight(1);
+    sep->setStyleSheet("background:#252d3d;border:none;");
+    lay->addWidget(sep);
+
+    // Tombol-tombol navigasi utama
+    QWidget *nav = new QWidget;
+    nav->setStyleSheet("background:#1a1f2e;");
+    QVBoxLayout *nl = new QVBoxLayout(nav);
+    nl->setContentsMargins(0, 16, 0, 0);
+    nl->setSpacing(4);
+
+    btnInputData = new QPushButton("   Input Data");
+    btnInputData->setStyleSheet(SS_NAV_BTN);
+    btnInputData->setCursor(Qt::PointingHandCursor);
+    connect(btnInputData, &QPushButton::clicked, this, &MainWindow::showInputPage);
+
+    btnRiwayat = new QPushButton("   Riwayat");
+    btnRiwayat->setStyleSheet(SS_NAV_BTN);
+    btnRiwayat->setCursor(Qt::PointingHandCursor);
+    connect(btnRiwayat, &QPushButton::clicked, this, &MainWindow::showRiwayatPage);
+
+    nl->addWidget(btnInputData);
+    nl->addWidget(btnRiwayat);
+    nl->addStretch();
+    lay->addWidget(nav, 1);
+
+    // Tombol Keluar di bagian bawah sidebar
+    QWidget *bot = new QWidget;
+    bot->setStyleSheet("background:#1a1f2e;");
+    QVBoxLayout *botL = new QVBoxLayout(bot);
+    botL->setContentsMargins(0, 0, 0, 16);
+    btnKeluar = new QPushButton("   Keluar");
+    btnKeluar->setStyleSheet(SS_NAV_BTN);
+    btnKeluar->setCursor(Qt::PointingHandCursor);
+    connect(btnKeluar, &QPushButton::clicked, []{ QApplication::quit(); });
+    botL->addWidget(btnKeluar);
+    lay->addWidget(bot);
+}
+
+/**
+ * @brief MainWindow::setupInputPage
+ * Membangun halaman formulir Input Data Kendaraan.
+ * Halaman ini dibungkus QScrollArea agar konten tidak terpotong
+ * saat ukuran jendela lebih kecil dari total tinggi formulir.
+ * Berisi dua card: Informasi Pemilik dan Data Kendaraan.
+ */
+void MainWindow::setupInputPage()
+{
+    // Widget konten yang akan bisa di-scroll
+    QWidget *innerWidget = new QWidget;
+    innerWidget->setStyleSheet("background:#f8fafc;");
+
+    QVBoxLayout *pg = new QVBoxLayout(innerWidget);
+    pg->setContentsMargins(32, 28, 32, 28);
+    pg->setSpacing(16);
+
+    // Judul dan subjudul halaman
+    QLabel *title = new QLabel("Input Data Kendaraan");
+    title->setStyleSheet("font-size:26px;font-weight:bold;color:#0f172a;background:transparent;");
+    QLabel *sub = new QLabel(
+        "");
+    sub->setStyleSheet("font-size:13px;color:#64748b;background:transparent;");
+    sub->setWordWrap(true);
+    pg->addWidget(title);
+    pg->addWidget(sub);
+
+    // ── Card Informasi Pemilik ──
+    QFrame *cardP = makeCard();
+    QVBoxLayout *pL = new QVBoxLayout(cardP);
+    pL->setContentsMargins(28, 20, 28, 24);
+    pL->setSpacing(12);
+
+    QLabel *h1 = new QLabel("Informasi Pemilik");
+    h1->setStyleSheet("font-size:15px;font-weight:bold;color:#1e293b;background:transparent;border:none;");
+    pL->addWidget(h1);
+    pL->addWidget(makeLine());
+
+    // Field nama pemilik
+    pL->addWidget(makeCaption("NAMA PEMILIK"));
+    inputNama = new QLineEdit;
+    inputNama->setPlaceholderText("Masukkan nama lengkap");
+    inputNama->setStyleSheet(SS_INPUT);
+    inputNama->setFixedHeight(42);
+    pL->addWidget(inputNama);
+
+    // Field alamat multi-line
+    pL->addWidget(makeCaption("ALAMAT LENGKAP"));
+    inputAlamat = new QTextEdit;
+    inputAlamat->setPlaceholderText("Masukkan alamat lengkap sesuai KTP");
+    inputAlamat->setStyleSheet(SS_INPUT);
+    inputAlamat->setFixedHeight(88);
+    pL->addWidget(inputAlamat);
+
+    pg->addWidget(cardP);
+
+    // ── Card Data Kendaraan ──
+    QFrame *cardK = makeCard();
+    QVBoxLayout *kL = new QVBoxLayout(cardK);
+    kL->setContentsMargins(28, 20, 28, 24);
+    kL->setSpacing(12);
+
+    QLabel *h2 = new QLabel("Data Kendaraan");
+    h2->setStyleSheet("font-size:15px;font-weight:bold;color:#1e293b;background:transparent;border:none;");
+    kL->addWidget(h2);
+    kL->addWidget(makeLine());
+
+    // Baris 1: Nomor Polisi dan Jenis Kendaraan berdampingan
+    QHBoxLayout *r1 = new QHBoxLayout;
+    r1->setSpacing(16);
+
+    QVBoxLayout *cNomor = new QVBoxLayout;
+    cNomor->setSpacing(6);
+    cNomor->addWidget(makeCaption("NOMOR POLISI"));
+    inputNomor = new QLineEdit;
+    inputNomor->setPlaceholderText("Contoh: B 1234 ABC");
+    inputNomor->setStyleSheet(SS_INPUT);
+    inputNomor->setFixedHeight(42);
+    cNomor->addWidget(inputNomor);
+
+    QVBoxLayout *cJenis = new QVBoxLayout;
+    cJenis->setSpacing(6);
+    cJenis->addWidget(makeCaption("JENIS KENDARAAN"));
+    comboJenis = new QComboBox;
+    comboJenis->setStyleSheet(SS_COMBO);
+    comboJenis->setFixedHeight(42);
+    comboJenis->addItem("Pilih jenis kendaraan");
+    comboJenis->addItem("Sepeda Motor");
+    comboJenis->addItem("Mobil");
+    comboJenis->addItem("Truck");
+    cJenis->addWidget(comboJenis);
+
+    r1->addLayout(cNomor);
+    r1->addLayout(cJenis);
+    kL->addLayout(r1);
+
+    // Baris 2: Tahun Pembuatan dan NJKB berdampingan
+    QHBoxLayout *r2 = new QHBoxLayout;
+    r2->setSpacing(16);
+
+    QVBoxLayout *cTahun = new QVBoxLayout;
+    cTahun->setSpacing(6);
+    cTahun->addWidget(makeCaption("TAHUN PEMBUATAN"));
+    inputTahun = new QLineEdit;
+    inputTahun->setPlaceholderText("Contoh: 2020");
+    inputTahun->setStyleSheet(SS_INPUT);
+    inputTahun->setFixedHeight(42);
+    inputTahun->setMaxLength(4);
+    // Validator memastikan user hanya bisa input tahun antara 1970-2025
+    inputTahun->setValidator(new QIntValidator(1970, 2025, this));
+    inputTahun->setText("2020");
+    cTahun->addWidget(inputTahun);
+
+    QVBoxLayout *cNJKB = new QVBoxLayout;
+    cNJKB->setSpacing(6);
+    cNJKB->addWidget(makeCaption("NJKB (NILAI JUAL KENDARAAN BERMOTOR)"));
+    inputNJKB = new QLineEdit;
+    inputNJKB->setPlaceholderText("Rp  0");
+    inputNJKB->setStyleSheet(SS_INPUT);
+    inputNJKB->setFixedHeight(42);
+    cNJKB->addWidget(inputNJKB);
+
+    r2->addLayout(cTahun);
+    r2->addLayout(cNJKB);
+    kL->addLayout(r2);
+
+    // Tombol Hitung Pajak rata kanan
+    QHBoxLayout *btnR = new QHBoxLayout;
+    btnR->addStretch();
+    btnHitung = new QPushButton("  HITUNG PAJAK");
+    btnHitung->setStyleSheet(SS_BTN_PRIMARY);
+    btnHitung->setFixedHeight(46);
+    btnHitung->setMinimumWidth(180);
+    btnHitung->setCursor(Qt::PointingHandCursor);
+    connect(btnHitung, &QPushButton::clicked, this, &MainWindow::hitungPajak);
+    btnR->addWidget(btnHitung);
+    kL->addLayout(btnR);
+
+    pg->addWidget(cardK);
+    pg->addStretch();
+
+    // Bungkus innerWidget ke dalam QScrollArea agar konten tidak terpotong
+    QScrollArea *scrollArea = new QScrollArea;
+    scrollArea->setWidget(innerWidget);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea->setStyleSheet(
+        "QScrollArea { background:#f8fafc; border:none; }"
+        "QScrollBar:vertical { background:#f8fafc; width:6px; border-radius:3px; }"
+        "QScrollBar::handle:vertical { background:#cbd5e1; border-radius:3px; }");
+
+    // inputPage adalah pembungkus agar scrollArea bisa masuk ke contentStack
+    inputPage = new QWidget;
+    QVBoxLayout *inputPageLayout = new QVBoxLayout(inputPage);
+    inputPageLayout->setContentsMargins(0, 0, 0, 0);
+    inputPageLayout->addWidget(scrollArea);
+}
+
+// ── Slot navigasi ─────────────────────────────────────────────
+
+/**
+ * @brief MainWindow::showInputPage
+ * Menampilkan halaman Input Data dan mengaktifkan tombol navigasinya di sidebar.
+ */
+void MainWindow::showInputPage()
+{
+    contentStack->setCurrentWidget(inputPage);
+    btnInputData->setStyleSheet(SS_NAV_BTN_ACTIVE);
+    btnRiwayat->setStyleSheet(SS_NAV_BTN);
+}
+
+/**
+ * @brief MainWindow::showRiwayatPage
+ * Menampilkan halaman Riwayat. Data terbaru selalu dikirim ulang ke widget
+ * Riwayat sebelum halaman ditampilkan agar tabel selalu up-to-date.
+ */
+void MainWindow::showRiwayatPage()
+{
+    riwayatPage->refresh(riwayatData);
+    contentStack->setCurrentWidget(riwayatPage);
+    btnRiwayat->setStyleSheet(SS_NAV_BTN_ACTIVE);
+    btnInputData->setStyleSheet(SS_NAV_BTN);
+}
+
+/**
+ * @brief MainWindow::kembaliKeInput
+ * Slot yang dipanggil ketika tombol "Kembali" di halaman Hasil ditekan.
+ */
+void MainWindow::kembaliKeInput()
+{
+    showInputPage();
+}
+
+// ── Slot Detail ───────────────────────────────────────────────
+
+/**
+ * @brief MainWindow::bukaDetailRiwayat
+ * Dipanggil saat user mengklik salah satu baris di tabel Riwayat.
+ * Mengambil data dari riwayatData berdasarkan index dan mengirimnya
+ * ke halaman Detail untuk ditampilkan.
+ * @param index Index record di dalam QList riwayatData.
+ */
+void MainWindow::bukaDetailRiwayat(int index)
+{
+    if (index < 0 || index >= riwayatData.size()) return;
+    detailPage->tampilkan(riwayatData[index], index);
+    contentStack->setCurrentWidget(detailPage);
+    btnRiwayat->setStyleSheet(SS_NAV_BTN_ACTIVE);
+    btnInputData->setStyleSheet(SS_NAV_BTN);
+}
+
+/**
+ * @brief MainWindow::kembaliKeRiwayatDariDetail
+ * Slot yang dipanggil ketika tombol "Kembali ke Riwayat" di halaman Detail ditekan.
+ */
+void MainWindow::kembaliKeRiwayatDariDetail()
+{
+    showRiwayatPage();
+}
+
+/**
+ * @brief MainWindow::hapusRiwayat
+ * Menghapus record pada index tertentu dari QList, menyimpan perubahan
+ * ke file, lalu kembali ke halaman Riwayat.
+ * @param index Index record yang akan dihapus di dalam riwayatData.
+ */
+void MainWindow::hapusRiwayat(int index)
+{
+    if (index < 0 || index >= riwayatData.size()) return;
+    riwayatData.removeAt(index);
+    Save::simpanKeFile(riwayatData);
+    QMessageBox::information(this, "Berhasil", "Data berhasil dihapus.");
+    showRiwayatPage();
+}
+
+/**
+ * @brief MainWindow::updateRiwayat
+ * Memperbarui record pada index tertentu dengan data hasil edit,
+ * menyimpan ke file, lalu memperbarui tampilan halaman Detail.
+ * @param index Index record yang akan diperbarui di dalam riwayatData.
+ * @param data  Data kendaraan baru hasil dari form edit di halaman Detail.
+ */
+void MainWindow::updateRiwayat(int index, DataKendaraan data)
+{
+    if (index < 0 || index >= riwayatData.size()) return;
+    riwayatData[index] = data;
+    Save::simpanKeFile(riwayatData);
+    QMessageBox::information(this, "Berhasil", "Data berhasil diperbarui.");
+    detailPage->tampilkan(riwayatData[index], index);
+}
+
+// ── Slot hitung pajak ─────────────────────────────────────────
+
+/**
+ * @brief MainWindow::hitungPajak
+ * Dipanggil saat tombol "HITUNG PAJAK" ditekan.
+ * Melakukan validasi input satu per satu, mendelegasikan perhitungan
+ * ke kelas HitungPajak, lalu menampilkan hasilnya di halaman Hasil.
+ */
+void MainWindow::hitungPajak()
+{
+    // Validasi field wajib satu per satu agar pesan error spesifik
+    if (inputNama->text().trimmed().isEmpty()) {
+        QMessageBox::warning(this, "Validasi", "Nama pemilik harus diisi!"); return;
+    }
+    if (inputNomor->text().trimmed().isEmpty()) {
+        QMessageBox::warning(this, "Validasi", "Nomor polisi harus diisi!"); return;
+    }
+    if (comboJenis->currentIndex() == 0) {
+        QMessageBox::warning(this, "Validasi", "Pilih jenis kendaraan terlebih dahulu!"); return;
+    }
+    if (inputTahun->text().trimmed().isEmpty()) {
+        QMessageBox::warning(this, "Validasi", "Tahun pembuatan harus diisi!"); return;
+    }
+
+    // Bersihkan format Rupiah jika user sudah mengetik dengan titik atau "Rp"
+    QString raw = inputNJKB->text().trimmed();
+    raw.remove("Rp").remove(".").remove(",").remove(" ");
+    double njkb = raw.toDouble();
+    if (njkb <= 0) {
+        QMessageBox::warning(this, "Validasi", "NJKB harus diisi dengan nilai yang valid!"); return;
+    }
+
+    QString jenis = comboJenis->currentText();
+
+    // Delegasikan perhitungan ke kelas HitungPajak (prinsip Single Responsibility)
+    double pkb   = HitungPajak::hitungPKB(njkb, jenis);
+    double swdkl = HitungPajak::hitungSWDKLLJ(jenis);
+    double total = pkb + swdkl;
+
+    // Simpan ke currentData sebagai buffer sebelum user konfirmasi simpan
+    currentData = {
+        inputNama->text().trimmed(),
+        inputAlamat->toPlainText().trimmed(),
+        inputNomor->text().trimmed().toUpper(),
+        jenis,
+        inputTahun->text().toInt(),
+        njkb, pkb, swdkl, total,
+        QDateTime::currentDateTime().toString("dd/MM/yyyy")
+    };
+
+    // Kirim data yang sudah diformat ke widget Hasil lalu tampilkan halamannya
+    hasilPage->tampilkanData(
+        currentData,
+        Save::formatRupiah(pkb),
+        Save::formatRupiah(swdkl),
+        Save::formatRupiah(total)
+        );
+
+    contentStack->setCurrentWidget(hasilPage);
+    btnInputData->setStyleSheet(SS_NAV_BTN_ACTIVE);
+    btnRiwayat->setStyleSheet(SS_NAV_BTN);
+}
+
+// ── Slot simpan ke riwayat ────────────────────────────────────
+
+/**
+ * @brief MainWindow::simpanKeRiwayat
+ * Dipanggil saat tombol "Simpan ke Riwayat" di halaman Hasil ditekan.
+ * Menambahkan currentData ke QList dan langsung menyimpan ke file
+ * agar data tidak hilang saat aplikasi ditutup.
+ */
+void MainWindow::simpanKeRiwayat()
+{
+    Save::tambahRiwayat(riwayatData, currentData);
+    Save::simpanKeFile(riwayatData);
+    QMessageBox::information(this, "Berhasil", "Data berhasil disimpan ke riwayat!");
+    showRiwayatPage();
+}
